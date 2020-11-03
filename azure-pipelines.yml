@@ -1,12 +1,9 @@
-# ASP.NET
-# Build and test ASP.NET projects.
 pool:
   name: Azure Pipelines
   demands:
   - msbuild
   - visualstudio
   - vstest
-  - java
 
 #Your build pipeline references an undefined variable named ‘Parameters.solution’. Create or edit the build pipeline for this YAML file, define the variable on the Variables tab. See https://go.microsoft.com/fwlink/?linkid=865972
 #Your build pipeline references an undefined variable named ‘Parameters.solution’. Create or edit the build pipeline for this YAML file, define the variable on the Variables tab. See https://go.microsoft.com/fwlink/?linkid=865972
@@ -59,16 +56,47 @@ steps:
     ArtifactName: '$(Parameters.ArtifactName)'
   condition: succeededOrFailed()
 
+- powershell: |
+   Set-ExecutionPolicy AllSigned -Scope Process -Force
+   $ProgressPreference = "silentlyContinue"
+   
+   iex ((New-Object System.Net.WebClient).DownloadString('https://download.srcclr.com/ci.ps1')) 
+   
+   srcclr scan
+  displayName: 'SCA Agent Scan'
+  env:
+    SRCCLR_API_TOKEN: [redacted]
+
 - task: Veracode.veracode-vsts-build-extension.veracode-scanner-task.Veracode@2
   displayName: 'Upload and scan: $(build.artifactstagingdirectory)'
   inputs:
     AnalysisService: 'veracode platform'
-    veracodeAppProfile: Verademo.net
+    veracodeAppProfile: veranet
     version: 'AzureDevops-$(build.buildNumber)'
+    optargs: '-selectedpreviously true'
+    failTheBuildIfVeracodeScanDidNotInitiate: true
     importResults: true
+  enabled: false
+
+- powershell: |
+   Set-ExecutionPolicy AllSigned -Scope Process -Force
+   $ProgressPreference = "silentlyContinue"
+   
+   curl  https://downloads.veracode.com/securityscan/pipeline-scan-LATEST.zip -o pipeline-scan.zip
+                    
+   Expand-Archive -Force -Path pipeline-scan.zip -DestinationPath veracode_scanner
+   
+   Compress-Archive -Path Verademo-Dotnet\\bin -DestinationPath upload.zip
+                     
+   java -jar veracode_scanner\\pipeline-scan.jar -vid $env:VERACODE_API_ID   -vkey  $env:VERACODE_API_KEY  -fs='Very High' -fc='89' --file upload.zip --issue_details true
+  displayName: 'Pipeline Scan'
+  env:
+    VERACODE_API_ID: [redacted]
+    VERACODE_API_KEY: [redacted]
 
 - task: Veracode.veracode-vsts-build-extension.veracode-flaw-importer-task.Veracode Flaw Importer@2
   displayName: 'Import flaws: Verademo.net - '
   inputs:
     AnalysisService: 'veracode platform'
     veracodeAppProfile: Verademo.net
+  enabled: false
